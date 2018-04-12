@@ -5,11 +5,32 @@
 #include "torch/csrc/utils/python_strings.h"
 #include "torch/csrc/utils/python_tuples.h"
 
+#include "torch/csrc/autograd/python_variable.h"
+#include "torch/csrc/jit/tracer.h"
+
 struct THPSize {
   PyTupleObject tuple;
 };
 
-PyObject * THPSize_New(int dim, const int64_t *sizes)
+PyObject * THPSize_New(const torch::autograd::Variable& var)
+{
+  if (!torch::jit::tracer::isTracing(var)) {
+    auto sizes = var.sizes();
+    return THPSize_NewFromSizes(var.dim(), sizes.data());
+  }
+  auto self = THPObjectPtr(THPSizeType.tp_alloc(&THPSizeType, var.dim()));
+  if (!self) throw python_error();
+
+  for (int64_t i = 0; i < var.dim(); ++i) {
+    PyObject *py_size_tensor = THPVariable_Wrap(torch::jit::tracer::getSizeOf(var, i));
+    if (!py_size_tensor) throw python_error();
+    PyTuple_SET_ITEM(self.get(), i, py_size_tensor);
+  }
+
+  return self.release();
+}
+
+PyObject * THPSize_NewFromSizes(int dim, const int64_t *sizes)
 {
   auto self = THPObjectPtr(THPSizeType.tp_alloc(&THPSizeType, dim));
   if (!self) throw python_error();

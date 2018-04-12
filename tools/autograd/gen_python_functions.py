@@ -35,7 +35,7 @@ static PyObject * ${pycname}(PyObject* self, PyObject* args, PyObject* kwargs)
   HANDLE_TH_ERRORS
   static PythonArgParser parser({
     ${signatures}
-  });
+  }, /*traceable=*/true);
   ${unpack_self}
   ParsedArgs<${max_args}> parsed_args;
   auto r = parser.parse(args, kwargs, parsed_args);

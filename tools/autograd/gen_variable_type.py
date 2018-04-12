@@ -120,7 +120,12 @@ PRE_RECORD_TRACE = CodeTemplate("""\
 jit::tracer::PreTraceInfo trace_info;
 if (jit::tracer::isTracing( ${tensor_args} )) {
   trace_info = jit::tracer::preRecordTrace( jit::aten::${trace_name}, ${trace_inputs} );
-  ${record_attributes}
+  if (!jit::tracer::ArgumentStash::empty()) {
+    ${record_positional_attributes}
+    TORCH_ASSERT(jit::tracer::ArgumentStash::empty());
+  } else {
+    ${record_attributes}
+  }
 }
 """)
 
@@ -131,7 +136,15 @@ if (trace_info.state != nullptr) {
 """)
 
 RECORD_ATTRIBUTE = CodeTemplate("""\
-        setattr(trace_info.n, jit::attr::${name}, ${name});""")
+setattr(trace_info.n, jit::attr::${name}, ${name});""")
+
+RECORD_POSITIONAL_ATTRIBUTE = CodeTemplate("""\
+setposattr(trace_info.n, ${i}, "${name}", ${name});""")
+
+POSITIONAL_ATTR_NYI = """\
+throw std::runtime_error("Can't have size-dependent arguments to functions that "
+                         "take variable number of tensor arguments");
+"""
 
 
 def gen_variable_type(out, aten_declarations):
@@ -366,6 +379,16 @@ def emit_body(declaration):
             if arg['simple_type'] in {'Tensor', 'TensorList'}:
                 continue
             local['record_attributes'].append(RECORD_ATTRIBUTE.substitute(name=arg['name']))
+
+        local['record_positional_attributes'] = []
+        for i, arg in enumerate(declaration['arguments']):
+            if arg['simple_type'] == 'Tensor':
+                continue
+            if arg['simple_type'] == 'TensorList':
+                local['record_positional_attributes'] = POSITIONAL_ATTR_NYI
+                break
+            local['record_positional_attributes'].append(
+                RECORD_POSITIONAL_ATTRIBUTE.substitute(name=arg['name'], i=i))
 
         # Record inplace operations as out-of-place operations (e.g.,
         # not add_ but add)
